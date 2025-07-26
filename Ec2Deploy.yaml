@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: My first CloudFormation template to create SQL Server Infrastructure.
+
+
+Parameters:
+  SelectInstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t3.micro
+    ConstraintDescription: Must be a valid EC2 instance type.
+  VPC:
+    Description: Select the VPC where the instance will be deployed
+    Type: AWS::EC2::VPC::Id
+  Subnet:
+    Description: Select the Subnet within the selected VPC
+    Type: AWS::EC2::Subnet::Id
+
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0aa097a5c0d31430a
+      InstanceType: !Ref SelectInstanceType
+      Subnet: !Ref Subnet
+      Tags: 
+          - Key: ServerName
+            Value: WebServer - DEMO
+          - Key: Name
+            Value: TestServer - DEMO
+      SecurityGroups:
+          - !Ref MyInstanceSecurityGroup
+      KeyName: devacnsgkeypair
+
+  MyInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+       GroupDescription: "Allow SSH and HTTPS from Anywhere"
+       SecurityGroupIngress:
+       - CidrIp: 0.0.0.0/0
+         FromPort: 80
+         IpProtocol: tcp
+         ToPort: 80
+       - CidrIp: 0.0.0.0/0
+         FromPort: 22
+         IpProtocol: tcp
+         ToPort: 22
+       Tags:
+        - Key: Name 
+          Value: SG-AllowSSH_HTTP
