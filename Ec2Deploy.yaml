@@ -6,11 +6,11 @@ Parameters:
   SelectInstanceType:
     Description: EC2 instance type
     Type: String
-    Default: t2.micro
+    Default: t3.xlarge
     AllowedValues:
-      - t2.micro
-      - t2.small
-      - t3.micro
+      - t3.medium
+      - t3.large
+      - t3.xlarge
     ConstraintDescription: Must be a valid EC2 instance type.
   VPC:
     Description: Select the VPC where the instance will be deployed
@@ -18,37 +18,104 @@ Parameters:
   Subnet:
     Description: Select the Subnet within the selected VPC
     Type: AWS::EC2::Subnet::Id
+  SelectKeyPair:
+    Description: Select the key pair name for the instance
+    Type: AWS::EC2::KeyPair::KeyName
+
+  DataVolumeSize:
+    Description: Size of the data volume in GB
+    Type: Number
+    Default: 10
+    ConstraintDescription: Enter Data volume size must be between 10 and 1000 GB.
+  
+  LogVolumeSize:
+    Description: Size of the data volume in GB
+    Type: Number
+    Default: 10
+    ConstraintDescription: Enter log volume size must be between 10 and 1000 GB.
+
+  TempVolumeSize:
+    Description: Size of the data volume in GB
+    Type: Number
+    Default: 10
+    ConstraintDescription: Enter tempdb size must be between 10 and 1000 GB.
 
 
 Resources:
   MyInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-0aa097a5c0d31430a
+      ImageId: ami-00307dc167da19510
       InstanceType: !Ref SelectInstanceType
-      Subnet: !Ref Subnet
+      SubnetId: !Ref Subnet
       Tags: 
           - Key: ServerName
-            Value: WebServer - DEMO
-          - Key: Name
-            Value: TestServer - DEMO
-      SecurityGroups:
-          - !Ref MyInstanceSecurityGroup
-      KeyName: devacnsgkeypair
+            Value: SQL3
+          - Key: retain
+            Value: true
+      SecurityGroupIds:
+          - sg-06449f17b58660d6e
+      KeyName: !Ref SelectKeyPair
 
-  MyInstanceSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
+  DataVolume:
+    Type: AWS::EC2::Volume
     Properties:
-       GroupDescription: "Allow SSH and HTTPS from Anywhere"
-       SecurityGroupIngress:
-       - CidrIp: 0.0.0.0/0
-         FromPort: 80
-         IpProtocol: tcp
-         ToPort: 80
-       - CidrIp: 0.0.0.0/0
-         FromPort: 22
-         IpProtocol: tcp
-         ToPort: 22
-       Tags:
-        - Key: Name 
-          Value: SG-AllowSSH_HTTP
+      Encrypted: true
+      AvailabilityZone: !GetAtt MyInstance.AvailabilityZone
+      Size: !Ref DataVolumeSize
+      Tags:
+        - Key: Name
+          Value: SQL3-D
+        - Key: retain
+          Value: true
+
+  AttachDataVolume:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref MyInstance
+      VolumeId: !Ref DataVolume
+
+  LogVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Encrypted: true
+      AvailabilityZone: !GetAtt MyInstance.AvailabilityZone
+      Size: !Ref LogVolumeSize
+      Tags:
+        - Key: Name
+          Value: SQL3-L
+        - Key: retain
+          Value: true
+
+  AttachLogVolume:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdg
+      InstanceId: !Ref MyInstance
+      VolumeId: !Ref LogVolume
+
+  TempVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Encrypted: true
+      AvailabilityZone: !GetAtt MyInstance.AvailabilityZone
+      Size: !Ref TempVolumeSize
+      Tags:
+        - Key: Name
+          Value: SQL3-T
+        - Key: retain
+          Value: true             
+
+  AttachTempVolume:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdh
+      InstanceId: !Ref MyInstance
+      VolumeId: !Ref TempVolume
+      
+
+Outputs:
+  InstanceId:
+    Description: ID of the created EC2 instance
+    Value: !Ref MyInstance
