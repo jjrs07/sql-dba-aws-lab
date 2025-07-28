@@ -9,7 +9,7 @@ Parameters:
     Default: t3.xlarge
     AllowedValues:
       - t3.medium
-      - t3.large
+      - t3.2xlarge
       - t3.xlarge
     ConstraintDescription: Must be a valid EC2 instance type.
   VPC:
@@ -40,6 +40,11 @@ Parameters:
     Default: 10
     ConstraintDescription: Enter tempdb size must be between 10 and 1000 GB.
 
+  IndexVolumeSize:
+    Description: Size of the data volume in GB
+    Type: Number
+    Default: 10
+    ConstraintDescription: Enter Data volume size must be between 10 and 1000 GB.
 
 Resources:
   MyInstance:
@@ -56,6 +61,46 @@ Resources:
       SecurityGroupIds:
           - sg-06449f17b58660d6e
       KeyName: !Ref SelectKeyPair
+      UserData:
+        Fn::Base64: !Sub |
+          <powershell>
+          Start-Sleep -Seconds 30
+
+          # List of drive letters to assign
+          $letters = @("H", "L", "I","T")
+          $labels = @("SQLData", "SQLLog", "SQLIndex", "SQLTempDB")
+
+          # Find all RAW (uninitialized) disks
+          $disks = Get-Disk | Where-Object PartitionStyle -eq 'RAW'
+
+          # Initialize, partition, format, and assign letter
+          for ($i = 0; $i -lt $disks.Count; $i++) {
+              Initialize-Disk -Number $disks[$i].Number -PartitionStyle MBR -PassThru |
+              New-Partition -UseMaximumSize -AssignDriveLetter |
+              Format-Volume -FileSystem NTFS -NewFileSystemLabel "$($labels[$i])" -Confirm:$false -Force
+
+              # Change the assigned letter to your desired one
+              $part = Get-Partition -DiskNumber $disks[$i].Number | Where-Object DriveLetter -ne $null
+              Set-Partition -DriveLetter $part.DriveLetter -NewDriveLetter $letters[$i]
+          }
+
+          # Create folder for scripts
+          New-Item -ItemType Directory -Path "C:\Setup" -Force
+
+          # Log the result
+          "Disk setup completed on: $(Get-Date)" | Out-File C:\Setup\disk-setup.log
+          
+          # Download bootstrap script from S3
+          Invoke-WebRequest -Uri "https://scripts-bucket-10343.s3.amazonaws.com/bootstrap.ps1" -OutFile "C:\Setup\bootstrap.ps1"
+
+          # Register scheduled task to run script once after login
+          $Action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument '-ExecutionPolicy Bypass -File C:\Setup\bootstrap.ps1'
+          $Trigger = New-ScheduledTaskTrigger -AtStartup
+          Register-ScheduledTask -TaskName "BootstrapOnce" -Action $Action -Trigger $Trigger -RunLevel Highest -User "SYSTEM"
+
+          # Reboot to trigger the task
+          #Restart-Computer -Force
+          </powershell>
 
   DataVolume:
     Type: AWS::EC2::Volume
@@ -65,7 +110,7 @@ Resources:
       Size: !Ref DataVolumeSize
       Tags:
         - Key: Name
-          Value: SQL3-D
+          Value: SQL3-H
         - Key: retain
           Value: true
 
@@ -113,7 +158,25 @@ Resources:
       Device: /dev/sdh
       InstanceId: !Ref MyInstance
       VolumeId: !Ref TempVolume
-      
+  
+  IndexVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Encrypted: true
+      AvailabilityZone: !GetAtt MyInstance.AvailabilityZone
+      Size: !Ref IndexVolumeSize
+      Tags:
+        - Key: Name
+          Value: SQL3-I
+        - Key: retain
+          Value: true             
+
+  AttachIndexVolume:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdi
+      InstanceId: !Ref MyInstance
+      VolumeId: !Ref IndexVolume    
 
 Outputs:
   InstanceId:

@@ -1,0 +1,40 @@
+UserData:
+  Fn::Base64: !Sub |
+    <powershell>
+    Start-Sleep -Seconds 30
+
+    # List of drive letters to assign
+    $letters = @("H", "L", "I","T")
+    $labels = @("SQLData", "SQLLog", "SQLIndex", "SQLTempDB")
+
+    # Find all RAW (uninitialized) disks
+    $disks = Get-Disk | Where-Object PartitionStyle -eq 'RAW'
+
+    # Initialize, partition, format, and assign letter
+    for ($i = 0; $i -lt $disks.Count; $i++) {
+        Initialize-Disk -Number $disks[$i].Number -PartitionStyle MBR -PassThru |
+        New-Partition -UseMaximumSize -AssignDriveLetter |
+        Format-Volume -FileSystem NTFS -NewFileSystemLabel "$($labels[$i])" -Confirm:$false -Force
+
+        # Change the assigned letter to your desired one
+        $part = Get-Partition -DiskNumber $disks[$i].Number | Where-Object DriveLetter -ne $null
+        Set-Partition -DriveLetter $part.DriveLetter -NewDriveLetter $letters[$i]
+    }
+
+    # Create folder for scripts
+    New-Item -ItemType Directory -Path "C:\Setup" -Force
+
+    # Log the result
+    "Disk setup completed on: $(Get-Date)" | Out-File C:\Setup\disk-setup.log
+    
+    # Download bootstrap script from S3
+    Invoke-WebRequest -Uri "https://scripts-bucket-10343.s3.amazonaws.com/bootstrap.ps1" -OutFile "C:\Setup\bootstrap.ps1"
+
+    # Register scheduled task to run script once after login
+    $Action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument '-ExecutionPolicy Bypass -File C:\Setup\bootstrap.ps1'
+    $Trigger = New-ScheduledTaskTrigger -AtStartup
+    Register-ScheduledTask -TaskName "BootstrapOnce" -Action $Action -Trigger $Trigger -RunLevel Highest -User "SYSTEM"
+
+    # Reboot to trigger the task
+    Restart-Computer -Force
+    </powershell>
